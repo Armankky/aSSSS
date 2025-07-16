@@ -1,57 +1,72 @@
+import json
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
+from aiogram.types import Message, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.types import ReplyKeyboardRemove
+from aiogram import Router
 import asyncio
-from config import BOT_TOKEN
-from database import save_user, get_phone_by_user_id
+import os
 
-# ساخت ربات و Dispatcher
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
+router = Router()
+db_file = "database.json"
 
+# بارگذاری دیتابیس
+def load_db():
+    if not os.path.exists(db_file):
+        return {}
+    with open(db_file, "r") as f:
+        return json.load(f)
 
-@dp.message(CommandStart())
-async def start_handler(message: types.Message):
-    # کیبورد برای درخواست شماره کاربر
+# ذخیره دیتابیس
+def save_db(data):
+    with open(db_file, "w") as f:
+        json.dump(data, f)
+
+# هندلر دریافت شماره تلفن
+@router.message(F.contact)
+async def handle_contact(message: Message):
+    user_id = str(message.from_user.id)
+    phone_number = message.contact.phone_number
+
+    db = load_db()
+    db[user_id] = phone_number
+    save_db(db)
+
+    await message.answer("شماره شما با موفقیت ذخیره شد.", reply_markup=ReplyKeyboardRemove())
+
+# هندلر دریافت /start
+@router.message(F.text == "/start")
+async def start(message: Message):
     kb = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📱 ارسال شماره من", request_contact=True)]
-        ],
+        keyboard=[[KeyboardButton(text="ارسال شماره 📱", request_contact=True)]],
         resize_keyboard=True,
         one_time_keyboard=True
     )
-    await message.answer("لطفا روی دکمه زیر کلیک کنید تا شماره خود را ارسال کنید 👇", reply_markup=kb)
+    await message.answer("برای ذخیره شماره، لطفاً شماره خود را ارسال کنید:", reply_markup=kb)
 
+# هندلر دریافت آیدی عددی
+@router.message(F.text.regexp(r'^\d+$'))
+async def get_phone_by_id(message: Message):
+    user_id = message.text.strip()
+    db = load_db()
+    phone_number = db.get(user_id)
 
-@dp.message(F.contact)
-async def contact_handler(message: types.Message):
-    contact = message.contact
-    user_id = contact.user_id
-    phone_number = contact.phone_number
+    if phone_number:
+        await message.answer(f"📞 شماره کاربر {user_id}: <code>{phone_number}</code>")
+    else:
+        await message.answer("❌ شماره‌ای برای این آیدی ذخیره نشده است.")
 
-    save_user(user_id, phone_number)
-
-    await message.answer(f"شماره شما ثبت شد:\n👤 <b>User ID:</b> <code>{user_id}</code>\n📱 <b>Phone:</b> <code>{phone_number}</code>")
-
-
-@dp.message(F.text.startswith("/getphone"))
-async def get_phone_handler(message: types.Message):
-    try:
-        _, user_id_str = message.text.split()
-        user_id = int(user_id_str)
-        phone = get_phone_by_user_id(user_id)
-        if phone:
-            await message.reply(f"📞 شماره کاربر:\n<code>{phone}</code>")
-        else:
-            await message.reply("❌ شماره‌ای برای این آیدی پیدا نشد.")
-    except:
-        await message.reply("❗ لطفاً دستور را به‌درستی وارد کنید:\n/getphone user_id")
-
-
+# راه‌اندازی ربات
 async def main():
+    dp.include_router(router)
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
