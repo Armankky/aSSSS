@@ -21,3 +21,7 @@ def save_user(user_id: int, phone_number: str):
 def get_all_users():
     cursor.execute("SELECT * FROM users")
     return cursor.fetchall()
+def get_phone_by_user_id(user_id: int):
+    cursor.execute("SELECT phone_number FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    return result[0] if result else None
